@@ -4,10 +4,9 @@
 //! is decoded, because the schema in the header is what a contract reads
 //! and a shape only sections.
 
+use message::Stop;
+use message::scan;
 use std::ops::Range;
-
-/// Where the walk stopped and why.
-pub type Stop = (&'static str, usize);
 
 /// The four bytes every object container file opens with.
 pub const MAGIC: &[u8] = b"Obj\x01";
@@ -43,28 +42,20 @@ pub struct Block {
     pub range: Range<usize>,
 }
 
-/// A zig-zag varint long at `at`: the value and the byte after it.
+/// A long at `at`, as Avro writes one: zig-zag over the Foundation's
+/// varint (ADR-0044). The value and the byte after it.
 ///
 /// # Errors
 /// The bytes end inside the number, or it runs past ten bytes.
 pub fn long(bytes: &[u8], at: usize) -> Result<(i64, usize), Stop> {
-    let mut value: u64 = 0;
-    for (index, byte) in bytes.get(at..).unwrap_or(&[]).iter().enumerate() {
-        if index >= 10 {
-            return Err(("a number runs past ten bytes", at));
-        }
-        value |= u64::from(byte & 0x7f) << (7 * index);
-        if byte & 0x80 == 0 {
-            let decoded = i64::try_from(value >> 1).unwrap_or(i64::MAX);
-            let signed = if value & 1 == 0 {
-                decoded
-            } else {
-                -decoded - 1
-            };
-            return Ok((signed, at + index + 1));
-        }
-    }
-    Err(("the file ends inside a number", bytes.len()))
+    let (value, next) = scan::varint(bytes, at)?;
+    let decoded = i64::try_from(value >> 1).unwrap_or(i64::MAX);
+    let signed = if value & 1 == 0 {
+        decoded
+    } else {
+        -decoded - 1
+    };
+    Ok((signed, next))
 }
 
 /// A length-prefixed byte sequence at `at`: its range and the byte after it.
@@ -154,12 +145,12 @@ mod tests {
         assert_eq!(long(&[0x02], 0), Ok((1, 1)));
         assert_eq!(long(&[0xff, 0x01], 0), Ok((-128, 2)));
         assert_eq!(long(&[0xac, 0x02], 0), Ok((150, 2)));
-        assert_eq!(long(&[0x80], 0), Err(("the file ends inside a number", 1)));
+        assert_eq!(long(&[0x80], 0), Err(("the bytes end inside a varint", 1)));
         assert_eq!(
             long(&[0x80; 11], 0),
-            Err(("a number runs past ten bytes", 0))
+            Err(("a varint runs past ten bytes", 0))
         );
-        assert_eq!(long(&[], 3), Err(("the file ends inside a number", 0)));
+        assert_eq!(long(&[], 3), Err(("the bytes end inside a varint", 0)));
     }
 
     #[test]
