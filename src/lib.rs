@@ -56,7 +56,7 @@ impl Shape for Avro {
 
     fn shape(&self, stream: &Stream) -> Result<Shaped, ShapeError> {
         let bytes = stream.bytes();
-        let refused = |(reason, at): (&str, usize)| ShapeError::new("avro", reason).at(at);
+        let refused = |stop| ShapeError::refused("avro", stop);
         let header = container::header(bytes).map_err(refused)?;
         let schema = header
             .metadata("avro.schema")

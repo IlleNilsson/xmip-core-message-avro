@@ -4,16 +4,17 @@
 //!
 //! The schema is JSON, and this is a scan of its top-level object for two
 //! string keys, not a parse: nested values are skipped balanced, strings
-//! are taken as written. A contract reads the schema in full.
+//! are taken as written. A contract reads the schema in full. The cursor —
+//! peek, whitespace, a string — is the Foundation's [`Scan`] (ADR-0044);
+//! what this file makes of the schema is Avro's.
+
+use message::scan::Scan;
 
 /// The full name the schema announces: `namespace.name` when the top-level
 /// type has a namespace and its name is not already dotted, else the name.
 #[must_use]
 pub fn full_name(schema: &[u8]) -> Option<String> {
-    let mut scan = Scan {
-        bytes: schema,
-        at: 0,
-    };
+    let mut scan = Scan::new(schema);
     scan.whitespace();
     if scan.peek() != Some(b'{') {
         return None;
@@ -32,7 +33,7 @@ pub fn full_name(schema: &[u8]) -> Option<String> {
             Some(b'"') => {}
             Some(_) => return None,
         }
-        let key = scan.string()?;
+        let key = scan.string().ok()?;
         scan.whitespace();
         if scan.peek() != Some(b':') {
             return None;
@@ -40,14 +41,14 @@ pub fn full_name(schema: &[u8]) -> Option<String> {
         scan.at += 1;
         scan.whitespace();
         if scan.peek() == Some(b'"') {
-            let value = scan.string()?;
+            let value = scan.string().ok()?;
             match key {
                 b"name" => name = Some(String::from_utf8_lossy(value).into_owned()),
                 b"namespace" => namespace = Some(String::from_utf8_lossy(value).into_owned()),
                 _ => {}
             }
         } else {
-            scan.value()?;
+            value(&mut scan)?;
         }
     }
     let name = name?;
@@ -59,58 +60,25 @@ pub fn full_name(schema: &[u8]) -> Option<String> {
     }
 }
 
-struct Scan<'a> {
-    bytes: &'a [u8],
-    at: usize,
-}
-
-impl<'a> Scan<'a> {
-    fn peek(&self) -> Option<u8> {
-        self.bytes.get(self.at).copied()
-    }
-
-    fn whitespace(&mut self) {
-        while matches!(self.peek(), Some(b' ' | b'\t' | b'\r' | b'\n')) {
-            self.at += 1;
-        }
-    }
-
-    /// The raw bytes of the string at `at`, escapes as written.
-    fn string(&mut self) -> Option<&'a [u8]> {
-        let start = self.at + 1;
-        let mut at = start;
-        loop {
-            match self.bytes.get(at)? {
-                b'"' => {
-                    self.at = at + 1;
-                    return Some(&self.bytes[start..at]);
-                }
-                b'\\' => at += 2,
-                _ => at += 1,
+/// Past any value under the cursor: a string, or a balanced object or
+/// array, or a scalar up to the next comma or closing bracket.
+fn value(scan: &mut Scan<'_>) -> Option<()> {
+    let mut depth = 0usize;
+    loop {
+        match scan.peek()? {
+            b'"' => {
+                scan.string().ok()?;
             }
-        }
-    }
-
-    /// Past any value at `at`: a string, or a balanced object or array, or
-    /// a scalar up to the next comma or closing bracket.
-    fn value(&mut self) -> Option<()> {
-        let mut depth = 0usize;
-        loop {
-            match self.peek()? {
-                b'"' => {
-                    self.string()?;
-                }
-                b'{' | b'[' => {
-                    depth += 1;
-                    self.at += 1;
-                }
-                b'}' | b']' | b',' if depth == 0 => return Some(()),
-                b'}' | b']' => {
-                    depth -= 1;
-                    self.at += 1;
-                }
-                _ => self.at += 1,
+            b'{' | b'[' => {
+                depth += 1;
+                scan.at += 1;
             }
+            b'}' | b']' | b',' if depth == 0 => return Some(()),
+            b'}' | b']' => {
+                depth -= 1;
+                scan.at += 1;
+            }
+            _ => scan.at += 1,
         }
     }
 }
@@ -148,6 +116,7 @@ mod tests {
         );
         assert_eq!(full_name(br#"{"type": "array", "items": "long"}"#), None);
         assert_eq!(full_name(br#"{"name": "cut"#), None);
+        assert_eq!(full_name(br#"{"name": "bad \x escape"}"#), None);
         assert_eq!(full_name(b""), None);
     }
 }
