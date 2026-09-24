@@ -94,17 +94,7 @@ mod tests {
 
     /// A long as Avro writes it: zig-zag, then base-128 little-endian.
     fn long(value: i64) -> Vec<u8> {
-        let mut zigzag = ((value << 1) ^ (value >> 63)).cast_unsigned();
-        let mut out = Vec::new();
-        loop {
-            let byte = u8::try_from(zigzag & 0x7f).expect("seven bits");
-            zigzag >>= 7;
-            if zigzag == 0 {
-                out.push(byte);
-                return out;
-            }
-            out.push(byte | 0x80);
-        }
+        codec::varint::encode(codec::varint::zigzag(value))
     }
 
     fn sized(bytes: &[u8]) -> Vec<u8> {
