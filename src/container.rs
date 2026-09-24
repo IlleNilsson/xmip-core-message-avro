@@ -42,20 +42,14 @@ pub struct Block {
     pub range: Range<usize>,
 }
 
-/// A long at `at`, as Avro writes one: zig-zag over the Foundation's
-/// varint (ADR-0044). The value and the byte after it.
+/// A long at `at`, as Avro writes one: zig-zag over the varint, both
+/// `codec::varint`. The value and the byte after it.
 ///
 /// # Errors
 /// The bytes end inside the number, or it runs past ten bytes.
 pub fn long(bytes: &[u8], at: usize) -> Result<(i64, usize), Stop> {
     let (value, next) = scan::varint(bytes, at)?;
-    let decoded = i64::try_from(value >> 1).unwrap_or(i64::MAX);
-    let signed = if value & 1 == 0 {
-        decoded
-    } else {
-        -decoded - 1
-    };
-    Ok((signed, next))
+    Ok((codec::varint::unzigzag(value), next))
 }
 
 /// A length-prefixed byte sequence at `at`: its range and the byte after it.
