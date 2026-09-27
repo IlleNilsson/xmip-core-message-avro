@@ -5,43 +5,45 @@
 //! The schema is JSON, and this is a scan of its top-level object for two
 //! string keys, not a parse: nested values are skipped balanced, strings
 //! are taken as written. A contract reads the schema in full. The cursor —
-//! peek, whitespace, a string — is the Foundation's [`Scan`] (ADR-0044);
-//! what this file makes of the schema is Avro's.
+//! peek, whitespace — is the estate's one, `codec::cursor::Cursor`, and a
+//! string is the Foundation's `message::scan::string` (ADR-0044); what this
+//! file makes of the schema is Avro's.
 
-use message::scan::Scan;
+use codec::cursor::Cursor;
+use message::scan::string;
 
 /// The full name the schema announces: `namespace.name` when the top-level
 /// type has a namespace and its name is not already dotted, else the name.
 #[must_use]
 pub fn full_name(schema: &[u8]) -> Option<String> {
-    let mut scan = Scan::new(schema);
-    scan.whitespace();
+    let mut scan = Cursor::new(schema);
+    scan.skip_whitespace();
     if scan.peek() != Some(b'{') {
         return None;
     }
-    scan.at += 1;
+    scan.advance(1);
     let mut name = None;
     let mut namespace = None;
     loop {
-        scan.whitespace();
+        scan.skip_whitespace();
         match scan.peek() {
             Some(b'}') | None => break,
             Some(b',') => {
-                scan.at += 1;
+                scan.advance(1);
                 continue;
             }
             Some(b'"') => {}
             Some(_) => return None,
         }
-        let key = scan.string().ok()?;
-        scan.whitespace();
+        let key = string(&mut scan).ok()?;
+        scan.skip_whitespace();
         if scan.peek() != Some(b':') {
             return None;
         }
-        scan.at += 1;
-        scan.whitespace();
+        scan.advance(1);
+        scan.skip_whitespace();
         if scan.peek() == Some(b'"') {
-            let value = scan.string().ok()?;
+            let value = string(&mut scan).ok()?;
             match key {
                 b"name" => name = Some(String::from_utf8_lossy(value).into_owned()),
                 b"namespace" => namespace = Some(String::from_utf8_lossy(value).into_owned()),
@@ -62,23 +64,23 @@ pub fn full_name(schema: &[u8]) -> Option<String> {
 
 /// Past any value under the cursor: a string, or a balanced object or
 /// array, or a scalar up to the next comma or closing bracket.
-fn value(scan: &mut Scan<'_>) -> Option<()> {
+fn value(scan: &mut Cursor<'_>) -> Option<()> {
     let mut depth = 0usize;
     loop {
         match scan.peek()? {
             b'"' => {
-                scan.string().ok()?;
+                string(scan).ok()?;
             }
             b'{' | b'[' => {
                 depth += 1;
-                scan.at += 1;
+                scan.advance(1);
             }
             b'}' | b']' | b',' if depth == 0 => return Some(()),
             b'}' | b']' => {
                 depth -= 1;
-                scan.at += 1;
+                scan.advance(1);
             }
-            _ => scan.at += 1,
+            _ => scan.advance(1),
         }
     }
 }
