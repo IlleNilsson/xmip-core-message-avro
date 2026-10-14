@@ -140,7 +140,7 @@ mod tests {
 
         let empty = file(&[("avro.schema", b"\"string\"")], &[]);
         let shaped = Avro.shape(&stream(&empty, None)).expect("no blocks");
-        assert!(shaped.parts.is_empty());
+        assert_eq!(shaped.parts, [] as [Part; 0]);
         assert_eq!(shaped.message_type, None);
     }
 
