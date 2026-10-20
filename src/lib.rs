@@ -50,7 +50,7 @@ impl Shape for Avro {
         ]
     }
 
-    fn recognises(&self, bytes: &[u8]) -> bool {
+    fn recognizes(&self, bytes: &[u8]) -> bool {
         bytes.starts_with(MAGIC)
     }
 
@@ -195,13 +195,13 @@ mod tests {
     }
 
     #[test]
-    fn the_shape_claims_avro_and_recognises_the_magic() {
+    fn the_shape_claims_avro_and_recognizes_the_magic() {
         assert_eq!(Avro.technology(), "avro");
         assert!(Avro.media_types().contains(&"avro/binary"));
-        assert!(Avro.recognises(b"Obj\x01\x00"));
-        assert!(!Avro.recognises(b"Obj\x00"));
-        assert!(!Avro.recognises(b"{}"));
-        assert!(!Avro.recognises(b""));
+        assert!(Avro.recognizes(b"Obj\x01\x00"));
+        assert!(!Avro.recognizes(b"Obj\x00"));
+        assert!(!Avro.recognizes(b"{}"));
+        assert!(!Avro.recognizes(b""));
 
         let shapes: [&dyn Shape; 1] = [&Avro];
         let by_media = message::choose(&shapes, &stream(b"x", Some("Application/Avro")));
