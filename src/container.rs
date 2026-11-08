@@ -56,10 +56,10 @@ pub fn long(bytes: &[u8], at: usize) -> Result<(i64, usize), Stop> {
 fn sized(bytes: &[u8], at: usize) -> Result<(Range<usize>, usize), Stop> {
     let (length, start) = long(bytes, at)?;
     let length = usize::try_from(length).map_err(|_| ("a negative length", at))?;
-    let end = start + length;
-    if end > bytes.len() {
-        return Err(("the file ends inside a value", bytes.len()));
-    }
+    let end = start
+        .checked_add(length)
+        .filter(|end| *end <= bytes.len())
+        .ok_or(("the file ends inside a value", bytes.len()))?;
     Ok((start..end, end))
 }
 
@@ -145,6 +145,32 @@ mod tests {
             Err(("a varint runs past ten bytes", 0))
         );
         assert_eq!(long(&[], 3), Err(("the bytes end inside a varint", 0)));
+    }
+
+    #[test]
+    fn a_length_past_the_end_or_past_usize_is_refused_without_overflow() {
+        let mut file = MAGIC.to_vec();
+        file.push(0x00);
+        file.extend_from_slice(&[7u8; 16]);
+        let header = header(&file).expect("a header");
+        for length in [i64::MAX, 1 << 40, 1] {
+            let mut hostile = file.clone();
+            hostile.push(0x02);
+            hostile.extend(codec::varint::encode(codec::varint::zigzag(length)));
+            assert_eq!(
+                blocks(&hostile, &header),
+                Err(("the file ends inside a value", hostile.len())),
+                "{length}"
+            );
+        }
+        let mut cut = MAGIC.to_vec();
+        cut.extend_from_slice(&[
+            0x02, 0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01,
+        ]);
+        assert_eq!(
+            super::header(&cut),
+            Err(("the file ends inside a value", cut.len()))
+        );
     }
 
     #[test]
