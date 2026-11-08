@@ -55,7 +55,7 @@ impl Shape for Avro {
     }
 
     fn shape(&self, stream: &Stream) -> Result<Shaped, ShapeError> {
-        let bytes = stream.bytes();
+        let bytes = message::loaded(self.technology(), stream)?;
         let refused = |stop| ShapeError::refused("avro", stop);
         let header = container::header(bytes).map_err(refused)?;
         let schema = header
@@ -204,10 +204,15 @@ mod tests {
         assert!(!Avro.recognizes(b""));
 
         let shapes: [&dyn Shape; 1] = [&Avro];
-        let by_media = message::choose(&shapes, &stream(b"x", Some("Application/Avro")));
+        let by_media =
+            message::choose(&shapes, &stream(b"x", Some("Application/Avro"))).expect("held");
         assert_eq!(by_media.map(Shape::technology), Some("avro"));
-        let by_look = message::choose(&shapes, &stream(b"Obj\x01", None));
+        let by_look = message::choose(&shapes, &stream(b"Obj\x01", None)).expect("held");
         assert_eq!(by_look.map(Shape::technology), Some("avro"));
-        assert!(message::choose(&shapes, &stream(b"plain", None)).is_none());
+        assert!(
+            message::choose(&shapes, &stream(b"plain", None))
+                .expect("held")
+                .is_none()
+        );
     }
 }
